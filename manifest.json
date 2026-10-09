@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Alternate Player for Twitch",
+  "short_name": "Alt Player",
+  "version": "0.6.2",
+  "description": "Abre lives da Twitch em um player alternativo que filtra os anúncios inseridos no stream.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Alternate Player: abrir esta live no player alternativo (fora da Twitch: liga/desliga o redirecionamento)"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.twitch.tv/*", "https://m.twitch.tv/*"],
+      "js": ["twitch.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "permissions": ["storage", "tabs", "declarativeNetRequestWithHostAccess"],
+  "host_permissions": [
+    "https://www.twitch.tv/*",
+    "https://m.twitch.tv/*",
+    "https://player.twitch.tv/*",
+    "https://gql.twitch.tv/*",
+    "https://*.ttvnw.net/*"
+  ]
+}

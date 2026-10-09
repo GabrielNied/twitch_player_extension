@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alternate Player</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="player.css">
+</head>
+<body>
+  <div id="app" class="chat-on">
+    <main id="stage">
+      <video id="video" playsinline></video>
+
+      <div id="overlay" hidden>
+        <div class="spinner"></div>
+        <div id="overlay-text"></div>
+        <div id="overlay-actions"></div>
+      </div>
+
+      <button id="big-play" hidden aria-label="Play">
+        <svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>
+      </button>
+
+      <button id="unmute-hint" hidden>Clique para ativar o som</button>
+
+      <div id="toast" hidden></div>
+      <div id="stats" hidden></div>
+
+      <!-- Channel info: only visible while the mouse is over the video -->
+      <header id="top">
+        <img id="avatar" alt="">
+        <div class="meta">
+          <div class="line">
+            <a id="name" target="_self"></a>
+            <span id="title"></span>
+          </div>
+          <div class="line sub">
+            <span id="game"></span>
+            <span id="viewers"></span>
+            <span id="uptime"></span>
+            <span id="ad-state" hidden></span>
+          </div>
+        </div>
+      </header>
+
+      <div id="controls">
+        <div id="seek" hidden>
+          <div id="seek-tip" hidden></div>
+          <div id="seek-track">
+            <div id="seek-fill"></div>
+            <div id="seek-thumb"></div>
+          </div>
+        </div>
+
+        <div class="bar">
+          <button id="btn-play" class="icon" data-tip="Play (k)">
+            <svg class="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>
+            <svg class="i-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+          </button>
+
+          <div class="volume-group">
+            <button id="btn-mute" class="icon" data-tip="Mudo (m)">
+              <svg class="i-vol" viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9H4Zm12.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4Zm-2.5-9v2.1a7 7 0 0 1 0 13.8V21a9 9 0 0 0 0-18Z"/></svg>
+              <svg class="i-muted" viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9H4Zm12.6 3 2.7-2.7-1.4-1.4-2.7 2.7-2.7-2.7-1.4 1.4 2.7 2.7-2.7 2.7 1.4 1.4 2.7-2.7 2.7 2.7 1.4-1.4z"/></svg>
+            </button>
+            <input id="volume" type="range" min="0" max="1" step="0.01" aria-label="Volume">
+          </div>
+
+          <button id="btn-live" class="live-btn" data-tip="Ir para o ao vivo (l)">
+            <span class="dot"></span><span id="latency">AO VIVO</span>
+          </button>
+
+          <div class="spacer"></div>
+
+          <div id="rec-indicator" hidden>
+            <span class="rec-dot"></span><span id="rec-text">REC 0:00</span>
+          </div>
+
+          <button id="btn-replay" class="icon" data-tip="Salvar replay (r)">
+            <svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z"/><path d="M10 10v6l5-3z"/></svg>
+          </button>
+          <button id="btn-record" class="icon" data-tip="Gravar (g)">
+            <svg viewBox="0 0 24 24"><circle class="rec-ring" cx="12" cy="12" r="8"/><circle class="rec-core" cx="12" cy="12" r="4.5"/></svg>
+          </button>
+          <button id="btn-settings" class="icon" data-tip="Configurações">
+            <svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.6 7.6 0 0 0 1.7 1L11 21h4l.4-2.7a7.6 7.6 0 0 0 1.7-1l2.5 1 2-3.5ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
+          </button>
+          <button id="btn-chat" class="icon" data-tip="Chat (c)">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4V4Zm4 5v2h2V9H8Zm4 0v2h2V9h-2Zm4 0v2h2V9h-2Z"/></svg>
+          </button>
+          <button id="btn-fullscreen" class="icon" data-tip="Tela cheia (f)">
+            <svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4Zm10 0h6v6h-2V6h-4V4ZM4 14h2v4h4v2H4v-6Zm14 0h2v6h-6v-2h4v-4Z"/></svg>
+          </button>
+        </div>
+
+        <div id="settings-menu" class="menu" hidden>
+          <div class="view" id="view-main">
+            <button class="menu-row" id="open-quality">
+              <span>Qualidade</span>
+              <span class="value" id="quality-value">Automático</span>
+              <svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+            <label class="menu-row toggle">
+              <span>Baixa latência</span>
+              <input type="checkbox" id="opt-lowlatency"><i></i>
+            </label>
+            <label class="menu-row toggle">
+              <span>Abrir lives automaticamente aqui</span>
+              <input type="checkbox" id="opt-enabled"><i></i>
+            </label>
+            <label class="menu-row toggle">
+              <span>Estatísticas de vídeo</span>
+              <input type="checkbox" id="opt-stats"><i></i>
+            </label>
+            <div class="menu-sep"></div>
+            <button class="menu-row" id="menu-pip"><span>Picture-in-picture</span><span class="value">i</span></button>
+            <a class="menu-row" id="open-twitch"><span>Abrir no player da Twitch</span></a>
+          </div>
+          <div class="view" id="view-quality" hidden>
+            <button class="menu-back" id="quality-back">
+              <svg class="chev" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>
+              <span>Qualidade</span>
+            </button>
+            <div id="quality-list"></div>
+          </div>
+        </div>
+
+        <div id="replay-menu" class="menu" hidden>
+          <div class="menu-title">Salvar replay</div>
+          <button class="menu-row" data-seconds="30">Últimos 30 segundos</button>
+          <button class="menu-row" data-seconds="60">Último 1 minuto</button>
+          <button class="menu-row" data-seconds="120">Últimos 2 minutos</button>
+          <div class="menu-note" id="replay-note"></div>
+        </div>
+      </div>
+    </main>
+
+    <aside id="chat">
+      <div id="chat-resize" title="Arraste para redimensionar o chat (duplo clique restaura)"></div>
+      <iframe id="chat-frame" title="Chat"></iframe>
+    </aside>
+  </div>
+
+  <script src="lib/hls.min.js"></script>
+  <script type="module" src="player.js"></script>
+</body>
+</html>
