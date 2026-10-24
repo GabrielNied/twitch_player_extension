@@ -11,7 +11,8 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Alternate Player: abrir esta live no player alternativo (fora da Twitch: liga/desliga o redirecionamento)"
+    "default_title": "Alternate Player",
+    "default_popup": "popup.html"
   },
   "background": {
     "service_worker": "background.js",

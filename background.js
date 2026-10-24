@@ -1,4 +1,4 @@
-import { getSettings, setSettings } from './settings.js';
+import { getSettings } from './settings.js';
 import { channelFromUrl, getStreamInfo } from './api.js';
 
 const playerUrl = login => chrome.runtime.getURL(`player.html?channel=${encodeURIComponent(login)}`);
@@ -46,12 +46,6 @@ async function setupRules() {
   });
 }
 
-async function updateBadge() {
-  const { enabled } = await getSettings();
-  await chrome.action.setBadgeBackgroundColor({ color: '#6b6b76' });
-  await chrome.action.setBadgeText({ text: enabled ? '' : 'OFF' });
-}
-
 async function isSkipped(login) {
   const { skip = [] } = await chrome.storage.session.get('skip');
   return skip.includes(login);
@@ -85,32 +79,13 @@ async function onNavigated(url, tabId) {
 
 chrome.runtime.onInstalled.addListener(() => {
   setupRules();
-  updateBadge();
+  chrome.action.setBadgeText({ text: '' }); // drop the old "OFF" badge
 });
 
-chrome.runtime.onStartup.addListener(() => {
-  setupRules();
-  updateBadge();
-});
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && 'enabled' in changes) updateBadge();
-});
+chrome.runtime.onStartup.addListener(setupRules);
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type === 'navigated' && sender.tab?.id != null) {
     onNavigated(msg.url, sender.tab.id).catch(err => console.warn('[ATP]', err));
   }
-});
-
-// Toolbar button: on a channel page, open it in the player; elsewhere, toggle
-// automatic redirection.
-chrome.action.onClicked.addListener(async tab => {
-  const login = channelFromUrl(tab.url || '');
-  if (login) {
-    await chrome.tabs.update(tab.id, { url: playerUrl(login) });
-    return;
-  }
-  const { enabled } = await getSettings();
-  await setSettings({ enabled: !enabled });
 });

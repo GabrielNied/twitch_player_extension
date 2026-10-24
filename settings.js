@@ -8,6 +8,7 @@ export const DEFAULTS = {
   chat: true,
   chatWidth: 340,
   lowLatency: true,
+  background: true,   // keep playing (on the lightest quality) while the tab is hidden
   stats: false,
 };
 

@@ -21,6 +21,9 @@ let mediaRecoveries = 0;
 let streamStart = null;
 let displayName = login;
 let rewinding = false;   // user moved back in time: don't speed up to catch the live edge
+let bestDelay = Infinity; // lowest delay behind the broadcast seen in this session (s)
+let driftTicks = 0;
+const DRIFT_LIMIT = 20;   // seconds behind bestDelay that mean the timeline went out of sync
 const replay = new ReplayBuffer(REWIND_SECONDS);
 
 init();
@@ -40,6 +43,7 @@ async function init() {
   setupMenus();
   setupSeekBar();
   setupReplay();
+  setupBackground();
   applyChat();
   setupChatResize();
   wake();
@@ -55,6 +59,7 @@ function tick() {
   updateSeekBar();
   updateStats();
   updateRecording();
+  checkDrift();
 }
 
 /* ---------- Channel info ---------- */
@@ -81,6 +86,14 @@ async function refreshInfo() {
   $('viewers').textContent = live ? `${user.stream.viewersCount.toLocaleString('pt-BR')} espectadores` : '';
   streamStart = live ? new Date(user.stream.createdAt) : null;
   updateUptime();
+  // Shown by the OS media controls (and keeps them working while the tab is hidden).
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: user.broadcastSettings?.title || user.displayName,
+      artist: user.displayName,
+      artwork: user.profileImageURL ? [{ src: user.profileImageURL }] : [],
+    });
+  }
 }
 
 const pad = n => String(n).padStart(2, '0');
@@ -113,6 +126,7 @@ function scheduleRestart(ms) {
 async function start() {
   clearTimeout(restartTimer);
   destroyPlayer();
+  if (suspended) return;
   setAdStatus({ mode: 'clean' });
   showOverlay('Conectando à live…');
 
@@ -132,12 +146,15 @@ async function start() {
     }
     return;
   }
+  if (suspended) return;
 
   variants = master.variants;
   filter = new AdFilter(login, variants, setAdStatus);
   const masterUrl = URL.createObjectURL(new Blob([master.text], { type: 'application/vnd.apple.mpegurl' }));
 
   rewinding = false;
+  bestDelay = Infinity;
+  driftTicks = 0;
   hls = new Hls({
     pLoader: filter.loaderFor(Hls),
     fLoader: replay.loaderFor(Hls),
@@ -186,6 +203,12 @@ async function play() {
   }
 }
 
+let pauseIntended = false; // the next 'pause' comes from the user, not from the browser
+function pause() {
+  pauseIntended = true;
+  video.pause();
+}
+
 function setRewinding(value) {
   rewinding = value;
   if (hls) hls.config.maxLiveSyncPlaybackRate = !value && settings.lowLatency ? 1.15 : 1;
@@ -197,8 +220,41 @@ function liveEdge() {
   return r.length ? r.end(r.length - 1) : video.currentTime;
 }
 
+// How far the frame on screen is behind the broadcast, from the segments'
+// program date time. Unlike hls.latency it can't be fooled by a playlist
+// timeline that went out of sync with the content (e.g. around ad breaks).
+function broadcastDelay() {
+  const date = hls?.playingDate;
+  return date ? (Date.now() - date.getTime()) / 1000 : null;
+}
+
+function drifted() {
+  const delay = broadcastDelay();
+  return delay != null && delay - bestDelay > DRIFT_LIMIT;
+}
+
+// Playing "live" but showing old content: seeking can't fix it because the
+// player's live edge is wrong too, so reload the stream like a page refresh.
+function checkDrift() {
+  const delay = broadcastDelay();
+  if (delay == null || video.paused || rewinding || video.readyState < 3 || adStatus.mode === 'waiting') {
+    driftTicks = 0;
+    return;
+  }
+  bestDelay = Math.min(bestDelay, delay);
+  driftTicks = drifted() ? driftTicks + 1 : 0;
+  if (driftTicks >= 10) {
+    console.warn('[ATP] playback drifted from the live edge, reloading', delay.toFixed(1), bestDelay.toFixed(1));
+    start();
+  }
+}
+
 function goLive() {
   setRewinding(false);
+  if (hls && drifted() && liveEdge() - video.currentTime < DRIFT_LIMIT) {
+    start();
+    return;
+  }
   if (hls) video.currentTime = liveEdge();
   video.play().catch(() => {});
 }
@@ -255,9 +311,23 @@ function buildQualityMenu() {
     list.append(row);
   }
 
-  const saved = options.find(o => o.index >= 0 && o.name === settings.quality);
-  if (saved) hls.currentLevel = saved.index;
+  const level = lowQuality ? lightestLevel() : chosenLevel();
+  if (level >= 0) hls.currentLevel = level;
   updateQualityLabels();
+}
+
+// Level picked in the quality menu, or -1 for automatic.
+function chosenLevel() {
+  return hls.levels.findIndex(level => levelName(level) === settings.quality);
+}
+
+// Smallest variant that still has video (audio-only would starve the video buffer).
+function lightestLevel() {
+  let best = -1;
+  hls.levels.forEach((level, i) => {
+    if (level.height && (best < 0 || level.bitrate < hls.levels[best].bitrate)) best = i;
+  });
+  return best;
 }
 
 function selectQuality(index, name) {
@@ -295,6 +365,10 @@ function setAdStatus(status) {
     return;
   }
   state.hidden = false;
+  // Pre-roll with no clean backup yet: say why nothing is showing.
+  if (status.mode === 'waiting' && !$('overlay').hidden && video.readyState < 3) {
+    showOverlay('Anúncio bloqueado. A live começa em instantes…');
+  }
   state.textContent = status.mode === 'backup'
     ? `Anúncio bloqueado · stream reserva${status.name ? ` ${status.name}` : ''}`
     : 'Anúncio bloqueado';
@@ -356,8 +430,16 @@ function setupControls() {
     volume.style.background = '';
   };
 
-  video.addEventListener('play', syncPlay);
+  video.addEventListener('play', () => {
+    pauseIntended = false;
+    syncPlay();
+  });
   video.addEventListener('pause', () => {
+    // Paused by the browser while playing in the background: keep going.
+    if (!pauseIntended && settings.background && inBackground() && !video.ended) {
+      video.play().catch(() => {});
+      return;
+    }
     // Pausing a live stream means coming back behind the live edge.
     setRewinding(true);
     syncPlay();
@@ -383,7 +465,13 @@ function setupControls() {
     }, 400);
   });
 
-  const togglePlay = () => (video.paused ? video.play().catch(() => {}) : video.pause());
+  const togglePlay = () => (video.paused ? video.play().catch(() => {}) : pause());
+  // Media keys, OS media controls and the PiP window go through these, so their
+  // pauses count as the user's.
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.setActionHandler('play', () => video.play().catch(() => {}));
+    navigator.mediaSession.setActionHandler('pause', pause);
+  }
   const toggleMute = () => {
     video.muted = !video.muted;
     if (!video.muted && video.volume === 0) video.volume = 0.5;
@@ -532,6 +620,7 @@ function setupMenus() {
 
   $('opt-enabled').checked = settings.enabled;
   $('opt-lowlatency').checked = settings.lowLatency;
+  $('opt-background').checked = settings.background;
   $('opt-stats').checked = settings.stats;
   $('stats').hidden = !settings.stats;
 
@@ -542,10 +631,11 @@ function setupMenus() {
   $('opt-lowlatency').addEventListener('change', e => {
     settings.lowLatency = e.target.checked;
     setSettings({ lowLatency: settings.lowLatency });
-    if (hls) {
-      hls.config.liveSyncDurationCount = settings.lowLatency ? 2 : 3;
-      setRewinding(rewinding);
-    }
+    applyLowLatency();
+  });
+  $('opt-background').addEventListener('change', e => {
+    settings.background = e.target.checked;
+    setSettings({ background: settings.background });
   });
   $('opt-stats').addEventListener('change', e => {
     settings.stats = e.target.checked;
@@ -553,6 +643,23 @@ function setupMenus() {
     $('stats').hidden = !settings.stats;
     updateStats();
   });
+
+  // The same options can be changed from the toolbar popup.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if ('enabled' in changes) $('opt-enabled').checked = settings.enabled = changes.enabled.newValue;
+    if ('background' in changes) $('opt-background').checked = settings.background = changes.background.newValue;
+    if ('lowLatency' in changes && changes.lowLatency.newValue !== settings.lowLatency) {
+      $('opt-lowlatency').checked = settings.lowLatency = changes.lowLatency.newValue;
+      applyLowLatency();
+    }
+  });
+}
+
+function applyLowLatency() {
+  if (!hls) return;
+  hls.config.liveSyncDurationCount = settings.lowLatency ? 2 : 3;
+  setRewinding(rewinding);
 }
 
 /* ---------- Seek bar (rewind inside the buffered window) ---------- */
@@ -692,6 +799,61 @@ function updateRecording() {
   $('rec-indicator').hidden = !info;
   if (info) $('rec-text').textContent = `REC ${formatTime(info.elapsed)} · ${(info.bytes / 1048576).toFixed(0)} MB`;
   if (!$('replay-menu').hidden) updateReplayMenu();
+}
+
+/* ---------- Background playback ---------- */
+
+// "Continuar em segundo plano" on: a hidden tab keeps playing on the lightest
+// variant (nobody sees it; saves bandwidth and decoding) and the chosen quality
+// comes back on return. Off: the player is torn down while hidden and reconnects
+// at the live edge on return. PiP and an ongoing recording always keep the
+// stream as it is.
+const LOW_QUALITY_DELAY = 10_000; // quick tab switches keep the quality
+let hiddenTimer = 0;
+let lowQuality = false;
+let suspended = false;
+
+function inBackground() {
+  return document.hidden && !document.pictureInPictureElement;
+}
+
+function setupBackground() {
+  document.addEventListener('visibilitychange', applyBackground);
+  video.addEventListener('enterpictureinpicture', applyBackground);
+  video.addEventListener('leavepictureinpicture', applyBackground);
+  applyBackground();
+}
+
+function applyBackground() {
+  clearTimeout(hiddenTimer);
+  if (!inBackground()) {
+    if (suspended) {
+      suspended = false;
+      start();
+      return;
+    }
+    setLowQuality(false);
+    // Fell behind while hidden (throttled or frozen tab): back to the live edge.
+    if (hls && !rewinding && !video.paused && liveEdge() - video.currentTime > 8) goLive();
+    return;
+  }
+  if (replay.recording) return;
+  if (!settings.background) {
+    suspended = true;
+    destroyPlayer();
+    clearTimeout(restartTimer);
+    return;
+  }
+  hiddenTimer = setTimeout(() => setLowQuality(true), LOW_QUALITY_DELAY);
+}
+
+function setLowQuality(value) {
+  if (lowQuality === value) return;
+  lowQuality = value;
+  if (!hls?.levels.length) return;
+  // Down: no flush, the buffered seconds play out. Up: flush after the current segment.
+  if (value) hls.loadLevel = lightestLevel();
+  else hls.nextLevel = chosenLevel();
 }
 
 /* ---------- Stats ---------- */

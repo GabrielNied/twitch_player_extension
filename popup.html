@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Alternate Player</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon32.png" alt="">
+    <span class="name">Alternate Player</span>
+    <span class="version" id="version"></span>
+  </header>
+
+  <section id="channel" hidden>
+    <div class="channel-info">
+      <img id="avatar" alt="">
+      <div class="meta">
+        <div id="channel-name"></div>
+        <div id="channel-status"></div>
+      </div>
+    </div>
+    <button id="open-player" class="primary">Abrir no player alternativo</button>
+    <a id="open-twitch" class="secondary" hidden>Abrir no player da Twitch</a>
+  </section>
+
+  <p id="hint" hidden>Entre numa live da Twitch para assistir no player alternativo.</p>
+
+  <section class="options">
+    <label class="option toggle">
+      <span>
+        <b>Abrir lives automaticamente aqui</b>
+        <small>Ao entrar numa live na Twitch, ela abre no player alternativo.</small>
+      </span>
+      <input type="checkbox" data-key="enabled"><i></i>
+    </label>
+    <label class="option toggle">
+      <span>
+        <b>Continuar em segundo plano</b>
+        <small>Com a aba escondida, a live segue tocando em qualidade baixa.</small>
+      </span>
+      <input type="checkbox" data-key="background"><i></i>
+    </label>
+    <label class="option toggle">
+      <span>
+        <b>Baixa latência</b>
+        <small>Fica mais perto do ao vivo; pode travar em conexões instáveis.</small>
+      </span>
+      <input type="checkbox" data-key="lowLatency"><i></i>
+    </label>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
