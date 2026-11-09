@@ -272,6 +272,19 @@ async function start(reason = '?') {
   hls.attachMedia(video);
 }
 
+// Backup tokens come from a budget shared by every player tab (background.js),
+// so several open lives don't multiply the requests to Twitch. The tab being
+// watched gets priority. If the background can't answer, go ahead.
+async function askBackupToken(type, why) {
+  try {
+    const r = await chrome.runtime.sendMessage({ type: 'backup-token', visible: !inBackground(), why });
+    if (r && !r.ok) log('token-denied', { type, why, left: r.left });
+    return r?.ok !== false;
+  } catch {
+    return true;
+  }
+}
+
 function onHlsError(_, data) {
   if (!data.fatal) return;
   console.warn('[ATP] fatal hls error', data.type, data.details);
