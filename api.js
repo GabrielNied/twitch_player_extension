@@ -27,7 +27,7 @@ export function twitchUrl(login, skipRedirect = false) {
   return `https://www.twitch.tv/${login}${skipRedirect ? '?atp-skip=1' : ''}`;
 }
 
-async function gql(query, variables) {
+export async function gql(query, variables) {
   const res = await fetch('https://gql.twitch.tv/gql', {
     method: 'POST',
     headers: {

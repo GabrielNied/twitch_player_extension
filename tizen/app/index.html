@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, user-scalable=no">
+  <title>Alt Player</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="home">
+    <nav id="sidebar" data-group="sidebar" data-lock="up down">
+      <div class="brand">Alt Player</div>
+      <button class="nav-item focusable" data-section="search">Buscar</button>
+      <button class="nav-item focusable" data-section="following">Seguindo <span class="count"></span></button>
+      <button class="nav-item focusable" data-section="top">Em alta</button>
+      <button class="nav-item focusable" data-section="games">Categorias</button>
+      <button class="nav-item focusable" data-section="settings">Configurações</button>
+      <div id="account" class="account"></div>
+    </nav>
+    <main id="content" data-group="content" data-lock="up down">
+      <header class="content-head">
+        <h1 id="content-title"></h1>
+        <span class="clock"></span>
+      </header>
+      <div id="content-body"></div>
+    </main>
+  </section>
+
+  <section id="player" hidden>
+    <div id="stage">
+      <video id="video"></video>
+      <aside id="chat"><ol id="chat-list"></ol></aside>
+    </div>
+    <div id="message" hidden>
+      <div class="spinner"></div>
+      <p id="message-text"></p>
+    </div>
+    <div id="paused" hidden>Pausado</div>
+
+    <div id="osd" hidden>
+      <div class="osd-top"><span class="clock"></span></div>
+      <div class="osd-bottom">
+        <div class="osd-info">
+          <img id="osd-avatar" alt="">
+          <div class="osd-text">
+            <div class="osd-name"><span id="osd-name"></span> <span id="osd-game"></span></div>
+            <div id="osd-title"></div>
+            <div class="osd-stats">
+              <span id="osd-live" class="tag live">AO VIVO</span>
+              <span id="osd-uptime"></span>
+              <span id="osd-viewers"></span>
+              <span id="osd-quality"></span>
+              <span id="osd-ad"></span>
+            </div>
+          </div>
+        </div>
+        <div id="osd-actions" data-group="actions" data-lock="up">
+          <button class="action focusable" data-action="chat"></button>
+          <button class="action focusable" data-action="chatSide"></button>
+          <button class="action focusable" data-action="chatMode"></button>
+          <button class="action focusable" data-action="quality"></button>
+          <button class="action focusable" data-action="favorite"></button>
+          <button class="action focusable" data-action="reload">Recarregar</button>
+        </div>
+        <h2 id="rail-title" class="rail-title"></h2>
+        <div id="rail" data-group="rail" data-lock="down"></div>
+      </div>
+    </div>
+
+    <div id="menu" hidden>
+      <h2>Qualidade</h2>
+      <div id="menu-list"></div>
+    </div>
+  </section>
+
+  <div id="modal" hidden><div id="modal-box"></div></div>
+  <div id="toast" hidden></div>
+
+  <script src="lib/hls.min.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -34,20 +34,38 @@ Para atualizar: baixe o zip novo, extraia por cima da mesma pasta e clique em re
 - Interface mínima: nome do canal, título e controles só aparecem com o mouse sobre o vídeo e somem sozinhos.
 - **Tamanho do chat**: arraste a borda esquerda do chat para aumentar ou diminuir (duplo clique volta ao padrão). O tamanho fica salvo.
 - **Segundo plano**: com "Continuar em segundo plano" ligado (padrão), a live segue tocando com a aba escondida e, depois de 10 s, cai para a menor qualidade com vídeo; ao voltar, a qualidade escolhida retorna. Desligado, o player para ao esconder a aba e reconecta no ao vivo ao voltar. Picture-in-picture e gravação em andamento nunca são afetados.
-- Engrenagem: qualidade, baixa latência, segundo plano, redirecionamento automático, estatísticas de vídeo, picture-in-picture e "Abrir no player da Twitch".
-- Atalhos: `espaço`/`k` play, `m` mudo, `↑`/`↓` volume, `←`/`→` voltar/avançar 10 s, `l` ao vivo, `r` replay, `g` gravar, `f` tela cheia, `i` picture-in-picture, `c` chat.
+- **Atraso**: por padrão a live fica ~10 s atrás do ao vivo, folga que segura as esperas durante anúncios. Com **Baixa latência** (desligada por padrão), ~4 s, com mais travadas nos anúncios. Depois de uma travada ou de um anúncio pulado a velocidade muda um pouco (0,9x a 1,15x) até voltar ao atraso alvo.
+- Engrenagem: qualidade, baixa latência, segundo plano, redirecionamento automático, estatísticas de vídeo, picture-in-picture, "Abrir no player da Twitch" e **Baixar log de diagnóstico**.
+- Atalhos: `espaço`/`k` play, `m` mudo, `↑`/`↓` volume, `←`/`→` voltar/avançar 10 s, `l` ao vivo, `r` replay, `g` gravar, `f` tela cheia, `i` picture-in-picture, `c` chat, `Shift+D` log de diagnóstico.
+
+## Anúncios
+
+A Twitch insere os anúncios na própria playlist da live. O player monta sua própria playlist a partir da live, e onde ela tem anúncio usa o mesmo trecho de uma stream reserva (outro tipo de player da Twitch, que costuma vir sem anúncio). Quando nenhuma stream tem o trecho sem anúncio, o player espera e, quando o anúncio acaba, pula o trecho que faltou. Na entrada e na saída do anúncio pode pular ou repetir até ~1 s.
+
+Durante um anúncio as streams reservas também recebem anúncio e são trocadas por novas. Para não fazer pedidos demais à Twitch, os pedidos de stream reserva têm um limite compartilhado entre todas as abas (~10 por minuto), com prioridade para a aba visível; uma aba em segundo plano pode ficar parada até o anúncio acabar.
+
+## Diagnóstico
+
+O player guarda um log dos eventos (playlists, trocas de stream, travadas, erros). **Baixar log de diagnóstico** na engrenagem (ou `Shift+D`) salva o arquivo `.ndjson` nos downloads. Para acompanhar ao vivo, rode `node tools/log-server.mjs`: enquanto ele estiver aberto, o player envia o log para `logs/`.
 
 ## Arquivos
 
 | Arquivo | Função |
 |---|---|
 | `manifest.json` | Manifest V3 |
-| `background.js` | Redirecionamento, regras de cabeçalho (DNR) |
+| `background.js` | Redirecionamento, regras de cabeçalho (DNR), limite de streams reservas |
 | `popup.html/.css/.js` | Menu do botão da extensão na barra |
 | `twitch.js` | Content script no twitch.tv |
 | `api.js` | GQL, token de reprodução, usher, parser da playlist master |
 | `ads.js` | Detecção/filtro de anúncios e stream reserva |
+| `realign.js` | Corrige o alinhamento do hls.js na troca de qualidade |
+| `debuglog.js` | Log de diagnóstico |
+| `tools/log-server.mjs` | Recebe o log ao vivo em `logs/` |
 | `player.html/.css/.js` | Página do player |
 | `replay.js` | Buffer de replay e gravação (segmentos → `.mp4`) |
 | `settings.js` | Configurações em `chrome.storage.local` |
 | `lib/hls.min.js` | hls.js 1.5.20 |
+
+## TV Samsung (experimental)
+
+A pasta [`tizen/`](tizen/) tem um app para TVs Samsung que reaproveita `api.js`, `ads.js`, `realign.js` e o hls.js da extensão. Instruções em [`tizen/README.md`](tizen/README.md).
