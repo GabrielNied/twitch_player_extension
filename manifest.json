@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Alternate Player for Twitch",
   "short_name": "Alt Player",
-  "version": "0.7.0",
+  "version": "0.6.2",
   "description": "Abre lives da Twitch em um player alternativo que filtra os anúncios inseridos no stream.",
   "icons": {
     "16": "icons/icon16.png",
