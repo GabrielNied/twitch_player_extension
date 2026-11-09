@@ -1,0 +1,67 @@
+# Lints every push and pull request.
+#
+# Versions come from the commit messages (Conventional Commits) through
+# release-please: on every push to main it opens or updates a release pull
+# request with the new versions and changelogs (fix: → 0.7.1, feat: → 0.8.0).
+# Merging that pull request creates the release; for the extension the zip is
+# built and attached to it here. The TV app (tizen/) gets its own versions and
+# tv-vX.Y.Z tags, without a package: the .wgt needs the Samsung certificate.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx --yes eslint@9 .
+
+  release:
+    needs: lint
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Outputs without a prefix belong to the root package: the extension.
+      - uses: actions/checkout@v4
+        if: steps.rp.outputs.release_created == 'true'
+      - name: Build zip and attach it to the release
+        if: steps.rp.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.rp.outputs.tag_name }}
+          VERSION: ${{ steps.rp.outputs.version }}
+        run: |
+          zip="alternate-player-twitch-$VERSION.zip"
+          git archive --format=zip -o "$zip" HEAD -- . \
+            ':!tizen' ':!tools' ':!.github' ':!README.md' ':!CHANGELOG.md' ':!.gitignore' \
+            ':!eslint.config.mjs' ':!release-please-config.json' ':!.release-please-manifest.json'
+          unzip -l "$zip"
+          # Every file the manifest and the pages load must be in the zip.
+          for f in $(jq -r '.background.service_worker, .action.default_popup, (.content_scripts[].js[]), (.icons[])' manifest.json) \
+                   $(grep -ohE '(src|href)="[^":]+\.(js|css)"' player.html popup.html | sed -E 's/.*="(.*)"/\1/') \
+                   $(grep -ohE "from '\./[^']+'" *.js | sed -E "s/from '\.\/(.*)'/\1/"); do
+            unzip -l "$zip" "$f" > /dev/null || { echo "missing in zip: $f"; exit 1; }
+          done
+          gh release upload "$TAG" "$zip" --clobber
+          install=$'Extensão para Chrome/Edge/Brave/Vivaldi.\n\n**Instalar:** baixe o zip, extraia em uma pasta fixa, abra `chrome://extensions`, ative o Modo do desenvolvedor e clique em Carregar sem compactação (selecione a pasta extraída). Para atualizar, extraia por cima da mesma pasta e clique em recarregar. Detalhes no README.\n\n'
+          gh release edit "$TAG" --notes "$install$(gh release view "$TAG" --json body -q .body)"

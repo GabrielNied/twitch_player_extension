@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "component": "extensao",
+      "include-component-in-tag": false,
+      "exclude-paths": ["tizen"],
+      "extra-files": [
+        { "type": "json", "path": "manifest.json", "jsonpath": "$.version" }
+      ]
+    },
+    "tizen": {
+      "release-type": "simple",
+      "component": "tv",
+      "include-component-in-tag": true,
+      "extra-files": [
+        { "type": "generic", "path": "app/config.xml" },
+        { "type": "generic", "path": "src/config.js" }
+      ]
+    }
+  }
+}

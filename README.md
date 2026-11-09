@@ -66,6 +66,16 @@ O player guarda um log dos eventos (playlists, trocas de stream, travadas, erros
 | `settings.js` | Configurações em `chrome.storage.local` |
 | `lib/hls.min.js` | hls.js 1.5.20 |
 
+## Versões e releases
+
+A versão sai das mensagens de commit ([Conventional Commits](https://www.conventionalcommits.org/pt-br/)), pelo [release-please](https://github.com/googleapis/release-please):
+
+- `fix: ...` → versão de correção (0.7.0 → 0.7.1); `feat: ...` → nova funcionalidade (0.7.0 → 0.8.0); `feat!: ...` ou `BREAKING CHANGE:` no corpo → muda o primeiro número; `chore:`, `ci:`, `docs:`, `refactor:` não mudam a versão.
+- A cada merge na `main`, o GitHub Actions abre ou atualiza um PR de release com as versões novas, o `manifest.json` atualizado e o `CHANGELOG.md`. Ao fazer o merge desse PR, sai o release `vX.Y.Z` com o zip da extensão anexado.
+- O app da TV (`tizen/`) tem versões e tags próprias (`tv-vX.Y.Z`), contando só commits que mexem em `tizen/`. O `.wgt` não é gerado no GitHub (precisa do certificado Samsung).
+- Mudança nos arquivos compartilhados (`ads.js`, `api.js`, `realign.js`) conta só para a extensão; para lançar a TV junto, faça um commit em `tizen/` ou use `Release-As: X.Y.Z` no corpo do commit.
+- Em PR com squash, o título do PR vira a mensagem do commit: use o mesmo padrão.
+
 ## TV Samsung (experimental)
 
 A pasta [`tizen/`](tizen/) tem um app para TVs Samsung que reaproveita `api.js`, `ads.js`, `realign.js` e o hls.js da extensão. Instruções em [`tizen/README.md`](tizen/README.md).

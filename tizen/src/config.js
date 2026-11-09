@@ -3,4 +3,4 @@
 // login, and "Seguindo" lists only the channels favorited on the TV.
 export const TWITCH_CLIENT_ID = 'md0u67cdida6x2m42z81aegswp07qa';
 
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.2.0'; // x-release-please-version
