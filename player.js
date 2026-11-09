@@ -27,6 +27,21 @@ let bestDelay = Infinity; // lowest delay behind the broadcast seen in this sess
 let driftTicks = 0;
 const DRIFT_LIMIT = 20;   // seconds behind bestDelay that mean the timeline went out of sync
 const replay = new ReplayBuffer(REWIND_SECONDS);
+// Broadcast time minus media time of each downloaded fragment: constant while
+// the content is continuous. A change means the playlist times of two streams
+// disagree with their content (playback would repeat or skip that much while
+// the playlist timeline looks continuous).
+let lastMedia = null;
+replay.onFragment = (frag, mt) => {
+  if (mt == null || !frag.programDateTime) return;
+  const anc = frag.programDateTime / 1000 - mt;
+  const src = filter?.sourceOf(frag.url);
+  if (lastMedia && frag.level === lastMedia.lvl && frag.sn === lastMedia.sn + 1 && Math.abs(anc - lastMedia.anc) > 0.5) {
+    log('content-jump', { sn: frag.sn, delta: anc - lastMedia.anc, from: lastMedia.src, to: src });
+  }
+  lastMedia = { sn: frag.sn, lvl: frag.level, anc, src };
+  log('media', { sn: frag.sn, lvl: frag.level, src, mt, anc });
+};
 
 init();
 

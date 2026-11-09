@@ -38,6 +38,10 @@ export class ReplayBuffer {
       return;
     }
     const entry = { sn: frag.sn, init: frag.initSegment?.url || null, duration: frag.duration || 2, bytes };
+    // Media time inside the fragment (fMP4), for the diagnostic log to check
+    // it against the broadcast time the playlist gives the fragment.
+    const init = entry.init && this.inits.get(entry.init);
+    if (this.onFragment && init) this.onFragment(frag, mediaStart(init, bytes));
 
     // The same segment can be loaded twice (quality switch, retry): keep the latest.
     const existing = this.entries.findIndex(e => e.sn === entry.sn && this.sameInit(e.init, entry.init));
@@ -207,6 +211,22 @@ function tfdts(view) {
 }
 
 const readTime = (view, t) => (t.wide ? view.getBigUint64(t.pos) : BigInt(view.getUint32(t.pos)));
+
+// Earliest decode time in a fragment, in seconds; null if it can't be read.
+function mediaStart(init, fragment) {
+  try {
+    const scales = timescales(init);
+    const view = new DataView(fragment);
+    let start = Infinity;
+    for (const t of tfdts(view)) {
+      const scale = scales.get(t.trackId);
+      if (scale) start = Math.min(start, Number(readTime(view, t)) / scale);
+    }
+    return Number.isFinite(start) ? start : null;
+  } catch {
+    return null;
+  }
+}
 
 function rebaseFragments(init, fragments) {
   try {
