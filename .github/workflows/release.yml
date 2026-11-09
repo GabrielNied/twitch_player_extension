@@ -1,0 +1,67 @@
+# Lints every push and pull request. On main, when manifest.json has a
+# version that has no release yet, builds the extension zip and publishes the
+# release vX.Y.Z with it (bump the version in manifest.json to release).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx --yes eslint@9 .
+
+  release:
+    needs: lint
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version manifest.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "v$version already released, nothing to do"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build zip
+        if: steps.version.outputs.new == 'true'
+        run: |
+          zip="alternate-player-twitch-${{ steps.version.outputs.version }}.zip"
+          git archive --format=zip -o "$zip" HEAD -- . \
+            ':!tizen' ':!tools' ':!.github' ':!README.md' ':!.gitignore' ':!eslint.config.mjs'
+          unzip -l "$zip"
+          # Every file the manifest and the pages load must be in the zip.
+          for f in $(jq -r '.background.service_worker, .action.default_popup, (.content_scripts[].js[]), (.icons[])' manifest.json) \
+                   $(grep -ohE '(src|href)="[^":]+\.(js|css)"' player.html popup.html | sed -E 's/.*="(.*)"/\1/') \
+                   $(grep -ohE "from '\./[^']+'" *.js | sed -E "s/from '\.\/(.*)'/\1/"); do
+            unzip -l "$zip" "$f" > /dev/null || { echo "missing in zip: $f"; exit 1; }
+          done
+      - name: Release
+        if: steps.version.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="v${{ steps.version.outputs.version }}"
+          notes=$'Extensão para Chrome/Edge/Brave/Vivaldi.\n\n**Instalar:** baixe o zip, extraia em uma pasta fixa, abra `chrome://extensions`, ative o Modo do desenvolvedor e clique em Carregar sem compactação (selecione a pasta extraída). Para atualizar, extraia por cima da mesma pasta e clique em recarregar. Detalhes no README.'
+          gh release create "$v" "alternate-player-twitch-${{ steps.version.outputs.version }}.zip" \
+            --title "$v" --target "$GITHUB_SHA" --notes "$notes" --generate-notes
