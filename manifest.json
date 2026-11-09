@@ -40,7 +40,6 @@
     "https://m.twitch.tv/*",
     "https://player.twitch.tv/*",
     "https://gql.twitch.tv/*",
-    "https://*.ttvnw.net/*",
-    "http://127.0.0.1:7777/*"
+    "https://*.ttvnw.net/*"
   ]
 }

@@ -1,6 +1,8 @@
 // Diagnostic log of the player: an in-memory ring buffer of events and
-// periodic snapshots, downloadable with Shift+D (or the settings menu) and,
-// when tools/log-server.mjs is running, streamed live to it.
+// periodic snapshots, downloadable with Shift+D (or the settings menu).
+// Streaming it live to tools/log-server.mjs is off unless turned on from the
+// player page's console: chrome.storage.local.set({ debugLive: true }) (the
+// extension also needs host permission for http://127.0.0.1:7777/*).
 const MAX_ENTRIES = 40000;   // in memory, this page load
 const LIVE_URL = 'http://127.0.0.1:7777/log';
 const LIVE_RETRY = 30_000;
@@ -9,6 +11,7 @@ const session = Math.random().toString(36).slice(2, 8);
 const entries = [];
 let pending = [];    // not yet sent to the live collector
 let live = false;
+let liveEnabled = false;
 let retryAt = 0;
 
 const round = v => {
@@ -26,7 +29,7 @@ export function log(ev, data = {}) {
   const e = { t: Date.now(), s: session, ev, ...round(data) };
   entries.push(e);
   if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
-  pending.push(e);
+  if (liveEnabled) pending.push(e);
   if (pending.length > 5000) pending.splice(0, pending.length - 5000);
 }
 
@@ -76,7 +79,11 @@ export function initLog(meta = {}) {
   addEventListener('unhandledrejection', e => log('rejection', { msg: String(e.reason?.stack || e.reason) }));
   addEventListener('pagehide', () => log('pagehide'));
   log('session', { url: location.href, version: chrome.runtime.getManifest().version, ...meta });
-  setInterval(flushLive, 1000);
+  chrome.storage.local.get('debugLive').then(r => {
+    if (!r.debugLive) return;
+    liveEnabled = true;
+    setInterval(flushLive, 1000);
+  }).catch(() => {});
 }
 
 function safeJson(v) {

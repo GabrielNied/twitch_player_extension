@@ -46,7 +46,7 @@ Durante um anúncio as streams reservas também recebem anúncio e são trocadas
 
 ## Diagnóstico
 
-O player guarda um log dos eventos (playlists, trocas de stream, travadas, erros). **Baixar log de diagnóstico** na engrenagem (ou `Shift+D`) salva o arquivo `.ndjson` nos downloads. Para acompanhar ao vivo, rode `node tools/log-server.mjs`: enquanto ele estiver aberto, o player envia o log para `logs/`.
+O player guarda um log dos eventos (playlists, trocas de stream, travadas, erros). **Baixar log de diagnóstico** na engrenagem (ou `Shift+D`) salva o arquivo `.ndjson` nos downloads. Para acompanhar ao vivo (desenvolvimento): adicione `"http://127.0.0.1:7777/*"` em `host_permissions` no `manifest.json`, recarregue a extensão, rode `chrome.storage.local.set({ debugLive: true })` no console da página do player e `node tools/log-server.mjs`; o log chega em `logs/`.
 
 ## Arquivos
 
