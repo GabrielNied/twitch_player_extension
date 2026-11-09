@@ -65,3 +65,14 @@ jobs:
           gh release upload "$TAG" "$zip" --clobber
           install=$'Extensão para Chrome/Edge/Brave/Vivaldi.\n\n**Instalar:** baixe o zip, extraia em uma pasta fixa, abra `chrome://extensions`, ative o Modo do desenvolvedor e clique em Carregar sem compactação (selecione a pasta extraída). Para atualizar, extraia por cima da mesma pasta e clique em recarregar. Detalhes no README.\n\n'
           gh release edit "$TAG" --notes "$install$(gh release view "$TAG" --json body -q .body)"
+
+      # The README links to releases/latest: keep it on the extension, not on
+      # a TV app release (which has no zip).
+      - name: Keep the extension as the latest release
+        if: steps.rp.outputs['tizen--release_created'] == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag=$(gh release list --limit 50 --json tagName -q '[.[] | select(.tagName | startswith("v"))][0].tagName')
+          gh release edit "$tag" --latest
