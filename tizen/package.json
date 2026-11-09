@@ -1,0 +1,14 @@
+{
+  "name": "alt-player-tizen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "qrcode-generator": "1.4.4"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.2"
+  }
+}

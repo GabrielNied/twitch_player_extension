@@ -20,12 +20,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.twitch.tv/*", "https://m.twitch.tv/*"],
-      "js": ["twitch.js"],
+      "matches": [
+        "https://www.twitch.tv/*",
+        "https://m.twitch.tv/*"
+      ],
+      "js": [
+        "twitch.js"
+      ],
       "run_at": "document_start"
     }
   ],
-  "permissions": ["storage", "tabs", "declarativeNetRequestWithHostAccess"],
+  "permissions": [
+    "storage",
+    "tabs",
+    "declarativeNetRequestWithHostAccess"
+  ],
   "host_permissions": [
     "https://www.twitch.tv/*",
     "https://m.twitch.tv/*",

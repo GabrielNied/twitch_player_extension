@@ -1,0 +1,11 @@
+# Tizen app: build output and signing files
+tizen/node_modules/
+tizen/app/main.js
+tizen/app/lib/
+tizen/app/icon.png
+tizen/app/*signature*.xml
+tizen/app/.manifest.tmp
+*.wgt
+
+# Diagnostic logs (tools/log-server.mjs)
+logs/

@@ -2,6 +2,8 @@ import { getSettings, setSettings } from './settings.js';
 import { fetchMaster, getStreamInfo, twitchUrl, OfflineError, PRIMARY_PLAYER_TYPE } from './api.js';
 import { AdFilter } from './ads.js';
 import { ReplayBuffer } from './replay.js';
+import { log, initLog, downloadLog } from './debuglog.js';
+import { realignOnLevelSwitch } from './realign.js';
 
 const Hls = window.Hls;
 const $ = id => document.getElementById(id);
@@ -29,7 +31,9 @@ const replay = new ReplayBuffer(REWIND_SECONDS);
 init();
 
 async function init() {
+  initLog({ channel: login, hls: Hls?.version });
   settings = await getSettings();
+  log('settings', { ...settings });
   if (!/^[a-z0-9_]{1,25}$/.test(login)) {
     showOverlay('Canal inválido.', { static: true });
     return;
@@ -47,12 +51,14 @@ async function init() {
   applyChat();
   setupChatResize();
   wake();
+  setupVideoLog();
   await refreshInfo();
-  start();
+  start('init');
   setInterval(refreshInfo, 60_000);
   setInterval(tick, 500);
 }
 
+let tickCount = 0;
 function tick() {
   updateUptime();
   updateLatency();
@@ -60,6 +66,91 @@ function tick() {
   updateStats();
   updateRecording();
   checkDrift();
+  controlRate();
+  if (tickCount++ % 2 === 0) log('snap', snapshot());
+}
+
+/* ---------- Diagnostics ---------- */
+
+const rangesOf = r => Array.from({ length: r.length }, (_, i) => [r.start(i), r.end(i)]);
+
+function snapshot() {
+  const s = video.seekable;
+  return {
+    ct: video.currentTime,
+    edge: hls ? liveEdge() : null,
+    sync: hls?.liveSyncPosition,
+    sk: s.length ? [s.start(0), s.end(s.length - 1)] : null,
+    buf: rangesOf(video.buffered),
+    delay: broadcastDelay(),
+    best: Number.isFinite(bestDelay) ? bestDelay : null,
+    dt: driftTicks,
+    lat: hls?.latency,
+    rs: video.readyState,
+    p: video.paused || undefined,
+    rate: video.playbackRate !== 1 ? video.playbackRate : undefined,
+    rew: rewinding || undefined,
+    ad: adStatus.mode !== 'clean' ? adStatus.mode : undefined,
+    lvl: hls?.currentLevel,
+    hid: document.hidden || undefined,
+    drop: video.getVideoPlaybackQuality?.().droppedVideoFrames,
+  };
+}
+
+// Fragment as hls.js sees it: `anc` is PDT minus timeline position, which
+// must stay constant across fragments; when it changes, playingDate (and so
+// the drift check) is computed from an inconsistent timeline.
+function fragInfo(frag) {
+  if (!frag) return null;
+  return {
+    sn: frag.sn,
+    cc: frag.cc,
+    lvl: frag.level,
+    start: frag.start,
+    dur: frag.duration,
+    pdt: frag.programDateTime ? new Date(frag.programDateTime).toISOString().slice(11, 23) : null,
+    anc: frag.programDateTime ? frag.programDateTime / 1000 - frag.start : null,
+    src: filter?.sourceOf(frag.url),
+  };
+}
+
+function setupVideoLog() {
+  for (const type of ['waiting', 'playing', 'pause', 'play', 'seeking', 'seeked', 'stalled', 'emptied', 'ratechange', 'ended']) {
+    video.addEventListener(type, () => log(`v-${type}`, { ct: video.currentTime, rate: video.playbackRate, rs: video.readyState }));
+  }
+  video.addEventListener('error', () => log('v-error', { code: video.error?.code, msg: video.error?.message }));
+  document.addEventListener('visibilitychange', () => log('visibility', { hidden: document.hidden }));
+}
+
+function setupHlsLog(h) {
+  const E = Hls.Events;
+  h.on(E.MANIFEST_PARSED, (_, d) => log('hls-manifest', { levels: d.levels.map(levelName) }));
+  h.on(E.LEVEL_SWITCHING, (_, d) => log('hls-level-switching', { lvl: d.level }));
+  h.on(E.LEVEL_SWITCHED, (_, d) => log('hls-level-switched', { lvl: d.level }));
+  h.on(E.LEVEL_UPDATED, (_, d) => {
+    const f = d.details.fragments;
+    log('hls-level', {
+      lvl: d.level,
+      sn: [d.details.startSN, d.details.endSN],
+      cc: [d.details.startCC, d.details.endCC],
+      tl: f.length ? [f[0].start, f[f.length - 1].start + f[f.length - 1].duration] : null,
+      anc: f.length && f[0].programDateTime ? [f[0].programDateTime / 1000 - f[0].start, f[f.length - 1].programDateTime / 1000 - f[f.length - 1].start] : null,
+      upd: d.details.updated,
+      miss: d.details.misses || undefined,
+    });
+  });
+  h.on(E.FRAG_LOADED, (_, d) => log('hls-frag-loaded', fragInfo(d.frag)));
+  h.on(E.FRAG_CHANGED, (_, d) => log('hls-frag-playing', { ...fragInfo(d.frag), ct: video.currentTime }));
+  h.on(E.BUFFER_FLUSHING, (_, d) => log('hls-flushing', { from: d.startOffset, to: d.endOffset, type: d.type }));
+  h.on(E.ERROR, (_, d) => log('hls-error', {
+    fatal: d.fatal,
+    type: d.type,
+    details: d.details,
+    reason: d.reason || d.error?.message,
+    frag: d.frag ? fragInfo(d.frag) : undefined,
+    buf: d.buffer,
+    ct: video.currentTime,
+  }));
 }
 
 /* ---------- Channel info ---------- */
@@ -118,12 +209,13 @@ function destroyPlayer() {
   }
 }
 
-function scheduleRestart(ms) {
+function scheduleRestart(ms, reason) {
   clearTimeout(restartTimer);
-  restartTimer = setTimeout(start, ms);
+  restartTimer = setTimeout(() => start(reason), ms);
 }
 
-async function start() {
+async function start(reason = '?') {
+  log('start', { reason, suspended: suspended || undefined, ...(hls ? snapshot() : {}) });
   clearTimeout(restartTimer);
   destroyPlayer();
   if (suspended) return;
@@ -134,22 +226,23 @@ async function start() {
   try {
     master = await fetchMaster(login, PRIMARY_PLAYER_TYPE);
   } catch (err) {
+    log('master-fail', { offline: err instanceof OfflineError, msg: err.message });
     if (err instanceof OfflineError) {
       showOverlay(`${displayName} está offline. Verificando de novo a cada 30 segundos.`, {
         static: true,
         actions: [{ label: 'Abrir na Twitch', href: twitchUrl(login, true) }],
       });
-      scheduleRestart(30_000);
+      scheduleRestart(30_000, 'offline-retry');
     } else {
       showOverlay(`Não foi possível carregar a live (${err.message}). Tentando de novo…`);
-      scheduleRestart(5_000);
+      scheduleRestart(5_000, 'master-retry');
     }
     return;
   }
   if (suspended) return;
 
   variants = master.variants;
-  filter = new AdFilter(login, variants, setAdStatus);
+  filter = new AdFilter(login, variants, setAdStatus, log, askBackupToken);
   const masterUrl = URL.createObjectURL(new Blob([master.text], { type: 'application/vnd.apple.mpegurl' }));
 
   rewinding = false;
@@ -160,11 +253,12 @@ async function start() {
     fLoader: replay.loaderFor(Hls),
     enableWorker: false,
     liveDurationInfinity: true,
-    liveSyncDurationCount: settings.lowLatency ? 2 : 3,
-    maxLiveSyncPlaybackRate: settings.lowLatency ? 1.15 : 1,
+    liveSyncDuration: liveDelay(),
     backBufferLength: REWIND_SECONDS,
   });
   mediaRecoveries = 0;
+  setupHlsLog(hls);
+  realignOnLevelSwitch(hls, Hls, log);
 
   hls.on(Hls.Events.MANIFEST_PARSED, () => {
     URL.revokeObjectURL(masterUrl);
@@ -182,12 +276,13 @@ function onHlsError(_, data) {
   if (!data.fatal) return;
   console.warn('[ATP] fatal hls error', data.type, data.details);
   if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
+    log('media-recover', { n: mediaRecoveries + 1 });
     if (mediaRecoveries++ === 1) hls.swapAudioCodec();
     hls.recoverMediaError();
     return;
   }
   showOverlay('Conexão perdida. Reconectando…');
-  scheduleRestart(3_000);
+  scheduleRestart(3_000, `fatal:${data.details}`);
 }
 
 async function play() {
@@ -210,8 +305,8 @@ function pause() {
 }
 
 function setRewinding(value) {
+  if (value !== rewinding) log('rewinding', { value, ct: video.currentTime });
   rewinding = value;
-  if (hls) hls.config.maxLiveSyncPlaybackRate = !value && settings.lowLatency ? 1.15 : 1;
 }
 
 function liveEdge() {
@@ -241,18 +336,22 @@ function checkDrift() {
     driftTicks = 0;
     return;
   }
+  if (delay < bestDelay - 1 || !Number.isFinite(bestDelay)) log('best-delay', { from: Number.isFinite(bestDelay) ? bestDelay : null, to: delay, frag: fragInfo(hls?.streamController?.currentFrag) });
   bestDelay = Math.min(bestDelay, delay);
+  const was = driftTicks;
   driftTicks = drifted() ? driftTicks + 1 : 0;
+  if (driftTicks === 1 && was === 0) log('drift-begin', { delay, best: bestDelay, frag: fragInfo(hls?.streamController?.currentFrag) });
   if (driftTicks >= 10) {
     console.warn('[ATP] playback drifted from the live edge, reloading', delay.toFixed(1), bestDelay.toFixed(1));
-    start();
+    start('drift');
   }
 }
 
-function goLive() {
+function goLive(source = '?') {
+  log('go-live', { source, ...snapshot() });
   setRewinding(false);
   if (hls && drifted() && liveEdge() - video.currentTime < DRIFT_LIMIT) {
-    start();
+    start('golive-drift');
     return;
   }
   if (hls) video.currentTime = liveEdge();
@@ -263,8 +362,9 @@ function seekTo(time) {
   const r = video.seekable;
   if (!r.length) return;
   const edge = liveEdge();
+  log('seek', { to: time, ct: video.currentTime, edge, sk: [r.start(0), r.end(r.length - 1)] });
   if (time >= edge - 1) {
-    goLive();
+    goLive('seek');
     return;
   }
   setRewinding(true);
@@ -330,8 +430,15 @@ function lightestLevel() {
   return best;
 }
 
+function exportLog() {
+  log('export', snapshot());
+  downloadLog({ channel: login, settings });
+  toast('Log de diagnóstico salvo nos downloads');
+}
+
 function selectQuality(index, name) {
   if (!hls) return;
+  log('select-quality', { index, name });
   hls.currentLevel = index;
   settings.quality = index < 0 ? 'auto' : name;
   setSettings({ quality: settings.quality });
@@ -505,7 +612,7 @@ function setupControls() {
     video.muted = video.volume === 0;
   });
   $('unmute-hint').addEventListener('click', () => { video.muted = false; });
-  $('btn-live').addEventListener('click', goLive);
+  $('btn-live').addEventListener('click', () => goLive('button'));
   $('btn-fullscreen').addEventListener('click', toggleFullscreen);
   $('menu-pip').addEventListener('click', () => {
     closeMenus();
@@ -544,6 +651,11 @@ function setupControls() {
   document.addEventListener('keydown', e => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) && document.activeElement.type !== 'range' && document.activeElement.type !== 'checkbox') return;
+    if (e.shiftKey && e.key.toLowerCase() === 'd') {
+      exportLog();
+      e.preventDefault();
+      return;
+    }
     switch (e.key.toLowerCase()) {
       case ' ':
       case 'k': togglePlay(); break;
@@ -551,7 +663,7 @@ function setupControls() {
       case 'f': toggleFullscreen(); break;
       case 'c': toggleChat(); break;
       case 'i': togglePip(); break;
-      case 'l': goLive(); break;
+      case 'l': goLive('key'); break;
       case 'r': openMenu('replay-menu'); break;
       case 'g': toggleRecording(); break;
       case 'arrowleft': seekTo(video.currentTime - 10); toast('-10s', 700); break;
@@ -615,6 +727,10 @@ function setupMenus() {
   for (const menu of document.querySelectorAll('.menu')) menu.addEventListener('click', e => e.stopPropagation());
   document.addEventListener('click', closeMenus);
 
+  $('menu-log').addEventListener('click', () => {
+    closeMenus();
+    exportLog();
+  });
   $('open-quality').addEventListener('click', () => showMenuView('quality'));
   $('quality-back').addEventListener('click', () => showMenuView('main'));
 
@@ -656,10 +772,41 @@ function setupMenus() {
   });
 }
 
+// Seconds behind the newest segment playback aims for. Low latency trades
+// buffer, which rides out a late backup stream during ads, for delay.
+const LIVE_DELAY_LOW = 4;
+const LIVE_DELAY_NORMAL = 10;
+const liveDelay = () => (settings.lowLatency ? LIVE_DELAY_LOW : LIVE_DELAY_NORMAL);
+
+// Playback speed that keeps the delay near liveDelay(), in both directions.
+// hls.js's own control (maxLiveSyncPlaybackRate) only speeds up: after
+// landing at the live edge (an ad skipped, a late backup stream) playback
+// stayed there with no buffer and stalled on every late segment. Slowing
+// down a little rebuilds the buffer. Never while rewound or paused.
+let rateMode = 0; // -1 slowing down, 0 normal, 1 catching up
+function controlRate() {
+  if (!hls || video.paused || video.readyState < 3) return;
+  const lat = hls.latency;
+  const target = liveDelay();
+  let mode = 0;
+  if (!rewinding && Number.isFinite(lat) && lat > 0) {
+    const off = lat - target;
+    if ((off > 1.5 || (rateMode === 1 && off > 0.3)) && off < 60) mode = 1;
+    else if (off < -1.5 || (rateMode === -1 && off < -0.3)) mode = -1;
+  }
+  if (mode !== rateMode) log('rate', { mode, lat, target });
+  rateMode = mode;
+  const off = Number.isFinite(lat) ? lat - target : 0;
+  const rate = mode === 1 ? (settings.lowLatency ? 1.15 : 1.05) : mode === -1 ? (off < -4 ? 0.9 : 0.95) : 1;
+  if (video.playbackRate !== rate) video.playbackRate = rate;
+}
+
 function applyLowLatency() {
   if (!hls) return;
-  hls.config.liveSyncDurationCount = settings.lowLatency ? 2 : 3;
-  setRewinding(rewinding);
+  log('low-latency', { value: settings.lowLatency });
+  hls.config.liveSyncDuration = liveDelay();
+  // Turned on: jump ahead now instead of speeding up for a minute.
+  if (settings.lowLatency && !rewinding && !video.paused) goLive('low-latency');
 }
 
 /* ---------- Seek bar (rewind inside the buffered window) ---------- */
@@ -826,15 +973,16 @@ function setupBackground() {
 
 function applyBackground() {
   clearTimeout(hiddenTimer);
+  log('background', { bg: inBackground(), pip: !!document.pictureInPictureElement, suspended: suspended || undefined });
   if (!inBackground()) {
     if (suspended) {
       suspended = false;
-      start();
+      start('resume');
       return;
     }
     setLowQuality(false);
     // Fell behind while hidden (throttled or frozen tab): back to the live edge.
-    if (hls && !rewinding && !video.paused && liveEdge() - video.currentTime > 8) goLive();
+    if (hls && !rewinding && !video.paused && liveEdge() - video.currentTime > 8) goLive('resume');
     return;
   }
   if (replay.recording) return;
@@ -849,6 +997,7 @@ function applyBackground() {
 
 function setLowQuality(value) {
   if (lowQuality === value) return;
+  log('low-quality', { value });
   lowQuality = value;
   if (!hls?.levels.length) return;
   // Down: no flush, the buffered seconds play out. Up: flush after the current segment.

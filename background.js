@@ -84,7 +84,35 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(setupRules);
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
+// Budget of backup-stream tokens shared by every player tab. During an ad
+// break each player swaps backup sessions as Twitch reaches them with the
+// ad, which means many new tokens; with several lives open that adds up to a
+// request pattern Twitch may rate-limit. A token bucket caps the total: up
+// to BUDGET_MAX at once, refilled by one every BUDGET_REFILL ms. A tab in the
+// background only gets one while HIDDEN_RESERVE are left for the visible one.
+// Kept in memory: if the service worker is stopped the bucket starts full,
+// which it would be by then anyway.
+const BUDGET_MAX = 10;
+const BUDGET_REFILL = 6_000;
+const HIDDEN_RESERVE = 2;
+let budget = BUDGET_MAX;
+let budgetAt = Date.now();
+
+function takeBackupToken(visible) {
+  const now = Date.now();
+  budget = Math.min(BUDGET_MAX, budget + (now - budgetAt) / BUDGET_REFILL);
+  budgetAt = now;
+  if (budget < (visible ? 1 : HIDDEN_RESERVE + 1)) return false;
+  budget -= 1;
+  return true;
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === 'backup-token') {
+    const ok = takeBackupToken(!!msg.visible);
+    sendResponse({ ok, left: Math.floor(budget) });
+    return;
+  }
   if (msg?.type === 'navigated' && sender.tab?.id != null) {
     onNavigated(msg.url, sender.tab.id).catch(err => console.warn('[ATP]', err));
   }

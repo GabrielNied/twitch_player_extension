@@ -7,7 +7,7 @@ export const DEFAULTS = {
   quality: 'auto',    // variant name ("1080p60", "720p60"...) or "auto"
   chat: true,
   chatWidth: 340,
-  lowLatency: true,
+  lowLatency: false,  // aim ~4 s behind the live edge instead of ~10 s (more stalls during ads)
   background: true,   // keep playing (on the lightest quality) while the tab is hidden
   stats: false,
 };
